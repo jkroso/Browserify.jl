@@ -84,6 +84,7 @@ compile(from::Union{File{:jade},File{:pug}}, to::File{:html}) = run(pipeline(fro
 "determine the format that a given file should be converted into"
 compiled_extension(::File) = ".html"
 compiled_extension(::File{:png}) = ".png"
+compiled_extension(::File{:ico}) = ".ico"
 compiled_extension(::File{:jpeg}) = ".jpeg"
 compiled_extension(::File{:jpg}) = ".jpg"
 compiled_extension(::File{:gif}) = ".gif"
