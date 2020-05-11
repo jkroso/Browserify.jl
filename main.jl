@@ -107,7 +107,9 @@ recur(html::File{:html}) = begin
   dom = parse(MIME("text/html"), read(html, String))
   close(html.io)
   open(html.path, "w") do io
-    show(io, MIME("text/html"), crawl(dom))
+    dom = crawl(dom)
+    pushfirst!(dom.children[1].children, DOM.Literal(analytics[]))
+    show(io, MIME("text/html"), dom)
   end
   html.path
 end
@@ -147,14 +149,16 @@ end
 const base = Ref{PosixPath}("/")
 const output = Ref{PosixPath}("/")
 const cursor = Ref{PosixPath}(".")
+const analytics = Ref{String}("")
 
 """
 Take a file in any format and convert it to a format which web browsers know how to display
 """
-browserify(file, into=dirname(file)) = begin
+browserify(file, into=dirname(file); tracking="") = begin
   exists(PosixPath(into)) || mkdir(into)
   @dynamic! let base = absolute(PosixPath(dirname(file))),
                 output = absolute(PosixPath(into)),
+                analytics=tracking,
                 cursor = base[]
     recur(compile(ReadFile(file)))
   end
