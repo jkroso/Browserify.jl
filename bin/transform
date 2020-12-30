@@ -1,0 +1,22 @@
+#!/usr/bin/env julia --color=yes --startup-file=no
+using Kip
+@use "github.com/jkroso/SimpleCLI.jl" @CLI
+@use "github.com/jkroso/Browserify.jl" compile ReadFile WriteFile compiled_extension
+
+"transform <file>"
+@CLI (file::String,)
+
+transform(path::String) = begin
+  file = ReadFile(path)
+  outpath = joinpath(tempdir(), basename(path))
+  out = WriteFile(splitext(outpath)[1] * compiled_extension(file))
+  try
+    compile(file, out)
+  finally
+    close(file.io)
+    close(out.io)
+  end
+  string(out.path)
+end
+
+println(transform(file))
