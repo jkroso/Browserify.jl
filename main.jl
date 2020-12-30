@@ -16,6 +16,7 @@ struct WriteFile{extension} <: File{extension}
 end
 Base.eof(f::File) = eof(f.io)
 Base.read(f::File, ::Type{UInt8}) = read(f.io, UInt8)
+Base.read(f::File, ::Type{String}) = read(f.io, String)
 Base.readavailable(f::File) = readavailable(f.io)
 Base.write(f::File, b::UInt8) = write(f.io, b)
 
