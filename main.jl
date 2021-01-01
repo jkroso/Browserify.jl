@@ -46,7 +46,7 @@ end
 compile(from::File{x}, to::File{x}) where x = write(to, from)
 
 compile(from::File{x}, to::File{:html}) where x = begin
-  html = read(`pygmentize -f html -O "noclasses" $(string(from.path))`, String)
+  html = read(`pygmentize -f html -O "noclasses" -g $(string(from.path))`, String)
   close(from.io)
   show(to.io, MIME("text/html"), @dom[:html
     [:head [:title basename(from.path)] need(DOM.css[])]
