@@ -39,7 +39,7 @@ compile(file::File) = begin
 end
 
 stripext(s) = begin
-  d, n = splitdir(s)
+  d, n = splitdir(string(s))
   joinpath(d, split(n,'.')[1])
 end
 

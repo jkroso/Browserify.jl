@@ -3,7 +3,7 @@ using Kip
 @use "github.com/jkroso/SimpleCLI.jl" @CLI
 @use "github.com/jkroso/Browserify.jl" browserify
 
-"transform <file>"
-@CLI (file::String,)
+"Browserify <file> in save it and all its dependencies into <outdir>"
+@CLI (file::String, outdir::String=tempdir())
 
-println(browserify(file, tempdir()))
+println(browserify(abspath(file), abspath(outdir)))
