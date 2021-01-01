@@ -1,4 +1,4 @@
-@use "github.com/rofinn/FilePathsBase.jl" PosixPath extension relative absolute filename exists
+@use "github.com/rofinn/FilePathsBase.jl" PosixPath extension extensions relative absolute filename exists
 @use "github.com/jkroso/DOM.jl" => DOM @dom @css_str ["html.jl"]
 @use "github.com/jkroso/Prospects.jl" need assoc
 @use "github.com/jkroso/DynamicVar.jl" @dynamic!
@@ -21,9 +21,9 @@ Base.readavailable(f::File) = readavailable(f.io)
 Base.write(f::File, b::UInt8) = write(f.io, b)
 
 ReadFile(s::String) = ReadFile(PosixPath(s))
-ReadFile(s::PosixPath) = ReadFile{Symbol(extension(s))}(s, open(s, "r"))
+ReadFile(s::PosixPath) = ReadFile{Symbol(join(extensions(s), '.'))}(s, open(s, "r"))
 WriteFile(s::String) = WriteFile(PosixPath(s))
-WriteFile(s::PosixPath) = WriteFile{Symbol(extension(s))}(s, open(s, "w"))
+WriteFile(s::PosixPath) = WriteFile{Symbol(join(extensions(s), '.'))}(s, open(s, "w"))
 
 compile(file::String) = compile(ReadFile(file))
 compile(file::File{:html}) = file
@@ -32,10 +32,15 @@ compile(file::File) = begin
   outpath = joinpath(output[], rel)
   outdir = dirname(outpath)
   exists(outdir) || mkdir(outdir)
-  out = WriteFile(splitext(outpath)[1] * compiled_extension(file))
+  out = WriteFile(stripext(outpath) * compiled_extension(file))
   compile(file, out)
   close(out.io)
   ReadFile(out.path)
+end
+
+stripext(s) = begin
+  d, n = splitdir(s)
+  joinpath(d, split(n,'.')[1])
 end
 
 compile(from::File{x}, to::File{x}) where x = write(to, from)
@@ -54,8 +59,8 @@ compile(from::File{x}, to::File{:html}) where x = begin
       parse(MIME("text/html"), html)]])
 end
 
-"Julia files will be evaluated and the returned object will get rendered to HTML"
-compile(from::File{:jl}, to::File{:html}) = begin
+"dom.jl files will be evaluated and the returned object will get rendered to HTML"
+compile(from::File{Symbol("dom.jl")}, to::File{:html}) = begin
   dom = Kip.eval_module(string(from.path))
   dom isa DOM.Node || (dom = doodle(dom))
   if dom isa DOM.Container{:html}
