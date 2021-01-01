@@ -140,7 +140,7 @@ recur_link(src) = begin
   path = @dynamic! let cursor = dirname(child)
     recur(compile(ReadFile(child)))
   end
-  string(splitext(src)[1], '.', extension(path))
+  string(stripext(src), '.', extension(path))
 end
 
 recur(css::File{:css}) = begin
