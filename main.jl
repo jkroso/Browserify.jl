@@ -79,7 +79,13 @@ compile(from::File{:md}, to::File{:html}) = begin
   show(to.io, MIME("text/html"), @dom[:html
     [:head
       [:title titlecase(replace(filename(from.path), "-"=>" "))]
-      need(DOM.css[])]
+      need(DOM.css[])
+      [:style """
+      @media print {
+        body {font-size:12px}
+        latex svg {stroke-width: 0}
+      }
+      """]]
     [:body css"img {max-width: 100%}"
       [:div css"max-width: 50em; margin: 1em auto;" doodle(Markdown.parse(read(from, String)))]]])
 end
