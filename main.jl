@@ -1,4 +1,5 @@
 @use "github.com/rofinn/FilePathsBase.jl" PosixPath extension extensions relative absolute filename exists
+@use "github.com/davidanthoff/NodeJS.jl" nodejs_cmd npm_cmd
 @use "github.com/jkroso/DOM.jl" => DOM @dom @css_str ["html.jl"]
 @use "github.com/jkroso/Prospects.jl" need assoc
 @use "github.com/jkroso/DynamicVar.jl" @dynamic!
@@ -90,7 +91,10 @@ compile(from::File{:md}, to::File{:html}) = begin
       [:div css"max-width: 50em; margin: 1em auto;" doodle(Markdown.parse(read(from, String)))]]])
 end
 
-compile(from::File{:less}, to::File{:css}) = run(pipeline(from.io, `lessc -`, to.io))
+compile(from::File{:less}, to::File{:css}) = cd(@dirname) do
+  ispath("node_modules/.bin/lessc") || run(`$(npm_cmd()) install --no-save less`)
+  run(pipeline(from.io, `$(nodejs_cmd()) ./node_modules/.bin/lessc -`, to.io))
+end
 compile(from::Union{File{:jade},File{:pug}}, to::File{:html}) = run(pipeline(from.io, `pug`, to.io))
 
 "determine the format that a given file should be converted into"
