@@ -1,18 +1,18 @@
-@use "github.com/rofinn/FilePathsBase.jl" PosixPath extension extensions relative absolute filename exists
-@use "github.com/davidanthoff/NodeJS.jl" nodejs_cmd npm_cmd
 @use "github.com/jkroso/DOM.jl" => DOM @dom @css_str ["html.jl"]
+@use "github.com/jkroso/URI.jl/FSPath.jl" FSPath @fs_str
 @use "github.com/jkroso/Prospects.jl" need assoc
 @use "github.com/jkroso/DynamicVar.jl" @dynamic!
 @use "github.com/jkroso/Rutherford.jl" doodle
+@use NodeJS: nodejs_cmd, npm_cmd
 import Markdown
 
 abstract type File{extension} <: IO end
 struct ReadFile{extension} <: File{extension}
-  path::PosixPath
+  path::FSPath
   io::IO
 end
 struct WriteFile{extension} <: File{extension}
-  path::PosixPath
+  path::FSPath
   io::IO
 end
 Base.eof(f::File) = eof(f.io)
@@ -21,28 +21,24 @@ Base.read(f::File, ::Type{String}) = read(f.io, String)
 Base.readavailable(f::File) = readavailable(f.io)
 Base.write(f::File, b::UInt8) = write(f.io, b)
 
-ReadFile(s::String) = ReadFile(PosixPath(s))
-ReadFile(s::PosixPath) = ReadFile{Symbol(join(extensions(s), '.'))}(s, open(s, "r"))
-WriteFile(s::String) = WriteFile(PosixPath(s))
-WriteFile(s::PosixPath) = WriteFile{Symbol(join(extensions(s), '.'))}(s, open(s, "w"))
+ReadFile(s::String) = ReadFile(FSPath(s))
+ReadFile(s::FSPath) = ReadFile{Symbol(extensions(s))}(s, open(string(s), "r"))
+WriteFile(s::String) = WriteFile(FSPath(s))
+WriteFile(s::FSPath) = WriteFile{Symbol(extensions(s))}(s, open(string(s), "w"))
 
 compile(file::String) = compile(ReadFile(file))
 compile(file::File{:html}) = file
 compile(file::File) = begin
-  rel = relative(file.path, base[])
-  outpath = joinpath(output[], rel)
-  outdir = dirname(outpath)
-  exists(outdir) || mkdir(outdir)
-  out = WriteFile(stripext(outpath) * compiled_extension(file))
+  rel = relpath(base[], file.path)
+  outpath = output[] * rel
+  outpath.parent.exists || mkdir(outpath.parent)
+  out = WriteFile(setext(outpath, compiled_extension(file)))
   compile(file, out)
   close(out.io)
   ReadFile(out.path)
 end
-
-stripext(s) = begin
-  d, n = splitdir(string(s))
-  joinpath(d, split(n,'.')[1])
-end
+setext(s::FSPath, ext) = s.parent * (split(s.name, '.')[1]*ext)
+extensions(s::FSPath) = join(split(s.name, '.')[2:end], '.')
 
 compile(from::File{x}, to::File{x}) where x = write(to, from)
 
@@ -69,7 +65,7 @@ compile(from::File{Symbol("dom.jl")}, to::File{:html}) = begin
   else
     show(to.io, MIME("text/html"), @dom[:html
       [:head
-        [:title titlecase(replace(filename(from.path), "-" => " "))]
+        [:title titlecase(replace(from.path.name, "-" => " "))]
         [:style compiled_output("$(@dirname)/style.less")]
         need(DOM.css[])]
       [:body dom]])
@@ -79,7 +75,7 @@ end
 compile(from::File{:md}, to::File{:html}) = begin
   show(to.io, MIME("text/html"), @dom[:html
     [:head
-      [:title titlecase(replace(filename(from.path), "-"=>" "))]
+      [:title titlecase(replace(from.path.name, "-"=>" "))]
       need(DOM.css[])
       [:style """
       @media print {
@@ -150,7 +146,7 @@ recur_link(src) = begin
   path = @dynamic! let cursor = dirname(child)
     recur(compile(ReadFile(child)))
   end
-  string(stripext(src), '.', extension(path))
+  setext(src, path.extension)
 end
 
 recur(css::File{:css}) = begin
@@ -162,18 +158,19 @@ recur(css::File{:css}) = begin
   css.path
 end
 
-const base = Ref{PosixPath}("/")
-const output = Ref{PosixPath}("/")
-const cursor = Ref{PosixPath}(".")
+const base = Ref{FSPath}(fs"/")
+const output = Ref{FSPath}(fs"/")
+const cursor = Ref{FSPath}(fs".")
 const analytics = Ref{String}("")
 
 """
 Take a file in any format and convert it to a format which web browsers know how to display
 """
-browserify(file, into=dirname(file); tracking="") = begin
-  exists(PosixPath(into)) || mkdir(into)
-  @dynamic! let base = absolute(PosixPath(dirname(file))),
-                output = absolute(PosixPath(into)),
+browserify(file::AbstractString, into=dirname(file); tracking="") = browserify(FSPath(file), FSPath(into); tracking=tracking)
+browserify(file::FSPath, into::FSPath=file.parent; tracking="") = begin
+  into.exists || mkdir(into)
+  @dynamic! let base = abs(file.parent),
+                output = abs(into),
                 analytics=tracking,
                 cursor = base[]
     recur(compile(ReadFile(file)))
