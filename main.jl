@@ -140,13 +140,14 @@ crawl_attr(::Val{:style}, style) = :style => Dict{Symbol,Any}([k=>crawl_style(v)
 crawl_attrs(attrs) = Dict{Symbol,Any}([crawl_attr(Val(k), v) for (k,v) in attrs])
 crawl_style(s) = replace(s, relative_path => recur_link)
 
+recur_link(src::AbstractString) = recur_link(FSPath(src))
 recur_link(src) = begin
-  isempty(src) || occursin(r"^(\w+?:|#)", src) && return src
-  child = joinpath(cursor[], src)
+  isempty(src) || occursin(r"^(\w+?:|#)", string(src)) && return string(src)
+  child = cursor[] * src
   path = @dynamic! let cursor = dirname(child)
     recur(compile(ReadFile(child)))
   end
-  setext(src, path.extension)
+  string(setext(src, path.extension))
 end
 
 recur(css::File{:css}) = begin
