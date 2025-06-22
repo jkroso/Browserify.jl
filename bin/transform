@@ -1,9 +1,0 @@
-#!/usr/bin/env julia --color=yes --startup-file=no
-using Kip
-@use "github.com/jkroso/SimpleCLI.jl" @main
-@use "github.com/jkroso/Browserify.jl" browserify
-
-"Browserify <file> in save it and all its dependencies into <outdir>"
-@main (file::String, outdir::String=tempdir())
-
-println(browserify(abspath(file), abspath(outdir)))
