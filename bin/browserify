@@ -1,0 +1,109 @@
+#!/usr/bin/env julia --color=yes --startup-file=no
+using Kip
+@use "github.com/jkroso/HTTP.jl/server" handle_requests
+@use "github.com/jkroso/Browserify.jl" compile ReadFile WriteFile compiled_extension browserify
+@use "github.com/jkroso/SimpleCLI.jl" @cli
+@use "github.com/jkroso/DOM.jl" => DOM @dom @css_str need ["html"]
+@use "../server" static
+@use Sockets: localhost, IPAddr, listen, listenany
+@use Dates
+
+@use Glob: @glob_str
+readdir(glob"Readme.*", pwd())
+Glob.GlobMatch
+
+transform(path::String) = begin
+  rel = relpath(path, root)
+  if isdir(path)
+    out = tempname()*".html"
+    open(out, "w") do io
+      show(io, MIME("text/html"), @dom[:html
+        [:head
+          [:title titlecase(replace(path, "-"=>" "))]
+          need(DOM.css[])]
+        [:body
+          [:div css"display: flex; height: 100%; font-family: verdana; justify-content: center"
+            @dom[:div css"""
+                      display: flex
+                      align-self: center
+                      flex-direction: column
+                      border: 1px solid lightgrey
+                      border-radius: 3px
+                      """
+              (render_row(name, rel, path) for name in readdir(path))...]]]])
+    end
+    out
+  else
+    file = ReadFile(path)
+    outpath = joinpath(tempdir(), rel)
+    outdir = dirname(outpath)
+    ispath(outdir) || mkpath(outdir)
+    out = WriteFile(first(split(outpath, '.')) * compiled_extension(file))
+    compile(file, out)
+    close(out.io)
+    string(out.path)
+  end
+end
+
+isimage(s) = s in [".svg", ".jpg", ".jpeg", ".png", ".ico", ".gif"]
+loadsvg(name) = parse(MIME("text/html"), read("$(@dirname)/../server/assets/$name.svg", String))
+
+datasize(value::Number) = begin
+  power = max(1, round(Int, value > 0 ? log10(value) : 3) - 2)
+  suffix = ["B", "kB", "MB", "GB", "TB", "PB", "EB", "ZB", "YB"][power]
+  string(round(Int, 1e3*value / 1e3^power), suffix)
+end
+
+render_row(name, rel, dir) = begin
+  path = joinpath(dir, name)
+  data = stat(path)
+  class = css"""
+  display: inline-flex
+  align-items: center
+  padding: 5px 10px
+  > svg {margin-right: 10px}
+  > span {margin: 0 0 0 10px}
+  """
+  if isdir(data)
+    @dom[:span class=class loadsvg("file-directory") [:a href=string(joinpath(rel, name)) name "/"]]
+  else
+    type = if islink(data)
+      loadsvg("file-symlink-file")
+    elseif isimage(splitext(name)[end])
+      loadsvg("image")
+    else
+      loadsvg("file")
+    end
+    @dom[:span class=class
+      type
+      [:a href=string(joinpath(rel, name)) name]
+      [:span datasize(data.size)]
+      [:span Dates.format(Dates.unix2datetime(data.mtime), "HH:MM d/m/yyyy")]]
+  end
+end
+
+"Serve a directory over TCP on a localhost port"
+@cli serve(directory::String=pwd(); port::Integer=get(ENV,"PORT",0), addr::String="localhost") = begin
+  host = addr == "localhost" ? localhost : parse(IPAddr, addr)
+  path = abspath(directory)
+  root = isdir(path) ? path : dirname(path)
+
+  p, server = if port != 0
+    port, listen(host, port)
+  else
+    listenany(host, 3000)
+  end
+
+  f = relpath(path, root)
+  domain = host == localhost ? "localhost" : host
+  run(`open http://$domain:$p/$(f == "." ? "" : f)`)
+
+  handle_requests(server) do req
+    static(root, req, transform=transform, index="index.jl")
+  end
+end
+
+"Browserify <file> and save it and all its dependencies into <outdir>"
+@cli main(file::String, outdir::String=tempdir()) = begin
+  println(browserify(abspath(file), abspath(outdir)))
+end

@@ -1,10 +1,12 @@
 @use "github.com/jkroso/DOM.jl" => DOM @dom @css_str ["html.jl"]
 @use "github.com/jkroso/URI.jl/FSPath.jl" FSPath @fs_str
-@use "github.com/jkroso/Prospects.jl" need assoc
+@use "github.com/jkroso/Prospects.jl" need assoc flatten @field_str
 @use "github.com/jkroso/DynamicVar.jl" @dynamic!
 @use "github.com/jkroso/Rutherford.jl" doodle
+@use Dates: unix2datetime, format, @dateformat_str
 @use NodeJS: nodejs_cmd, npm_cmd
-import Markdown
+@use Markdown
+@use MIMEs
 
 abstract type File{extension} <: IO end
 struct ReadFile{extension} <: File{extension}
@@ -26,7 +28,55 @@ ReadFile(s::FSPath) = ReadFile{Symbol(extensions(s))}(s, open(string(s), "r"))
 WriteFile(s::String) = WriteFile(FSPath(s))
 WriteFile(s::FSPath) = WriteFile{Symbol(extensions(s))}(s, open(string(s), "w"))
 
-compile(file::String) = compile(ReadFile(file))
+"Takes a file path and returns a file path to something that can be displayed in a browser"
+function compile(file::String)
+  if isdir(file)
+    out = file*".html"
+    open(out, "w") do io
+      show(io, MIME("text/html"), @dom[:html
+        [:head [:title basename(file)] need(DOM.css[])]
+        [:body css"""
+               display: flex
+               align-items: center
+               justify-content: space-around
+               """
+          [:div css"""
+                 display: flex
+                 flex-direction: column
+                 align-items: center
+                 justify-content: space-around
+                 max-width: 80em
+                 """
+            readme(FSPath(file))
+            directory(file)]]])
+    end
+    ReadFile(out)
+  else
+    compile(ReadFile(file))
+  end
+end
+
+function readme(dir::FSPath)
+  c = dir.children
+  i = findfirst(x->occursin(r"readme\..+"i, x), map(field"name", c))
+  isnothing(i) && return nothing
+  @dom[:div css"""
+            width: 100%
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif
+            background: white
+            border: 1px solid #e5e7eb
+            border-radius: 12px
+            overflow: hidden
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1)
+            margin: 1em 0
+            """
+    todom(ReadFile(c[i]))]
+end
+
+function todom(file::File{:md})
+  doodle(Markdown.parse(read(file.path, String)))
+end
+
 compile(file::File{:html}) = file
 compile(file::File) = begin
   rel = relpath(base[], file.path)
@@ -39,6 +89,107 @@ compile(file::File) = begin
 end
 setext(s::FSPath, ext) = s.parent * (split(s.name, '.')[1]*ext)
 extensions(s::FSPath) = join(split(s.name, '.')[2:end], '.')
+
+function get_file_icon(mime_type::String)
+  if startswith(mime_type, "image/")
+    "🖼️"
+  elseif startswith(mime_type, "video/")
+    "🎬"
+  elseif startswith(mime_type, "audio/")
+    "🎵"
+  elseif startswith(mime_type, "text/")
+    "📄"
+  elseif mime_type in ["application/pdf"]
+    "📋"
+  elseif mime_type in ["application/zip", "application/x-tar", "application/gzip"]
+    "📦"
+  elseif mime_type in ["application/json", "text/csv", "application/vnd.ms-excel"]
+    "📊"
+  elseif startswith(mime_type, "model/") || endswith(mime_type, "3d")
+    "📐"
+  elseif mime_type == "inode/directory"
+    "📁"
+  elseif mime_type == "application/octet-stream"
+    "💾"
+  else
+    "📎"
+  end
+end
+
+function get_mime_type(file::FSPath)
+  isdir(file) && return "inode/directory"
+  isempty(file.extension) && return "application/octet-stream"
+  m = MIMEs.mime_from_extension(file.extension)
+  isnothing(m) ? "application/octet-stream" : string(m)
+end
+
+function directory(path::String)
+  dir = FSPath(path)
+  entries = filter(readdir(dir)) do f
+    !occursin(r"^\.|readme\..+$|^favicon\.ico$"i, f.name)
+  end
+  entries = [dir.parent, entries...]
+  cells = flatten([
+    (let mime = get_mime_type(entry)
+      [@dom[:div class="cell" [:a href=string(entry)
+         get_file_icon(mime) " " entry == dir.parent ? ".." : entry.name * (isdir(entry) ? "/" : "")]],
+       @dom[:div class="cell" isdir(entry) ? "-" : datasize(filesize(entry))],
+       @dom[:div class="cell" showdate(ctime(entry))],
+       @dom[:div class="cell" showdate(mtime(entry))],
+       @dom[:div class="cell" split(mime, '/')[end]]]
+     end)
+   for entry in entries])
+  @dom[:div css"""
+    width: 100%
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif
+    background: white
+    border: 1px solid #e5e7eb
+    border-radius: 12px
+    overflow: hidden
+    box-shadow: 0 2px 10px rgba(0,0,0,0.1)
+    display: grid
+    grid-template-columns: 2fr 1fr 1fr 1fr 1fr
+
+    .header
+      background: #f8f9fa
+      padding: 16px 20px
+      font-weight: 600
+      color: #374151
+      border-bottom: 1px solid #e5e7eb
+
+    .cell
+      padding: 12px 20px
+      border-bottom: 1px solid #f3f4f6
+
+    .row:last-child .cell
+      border-bottom: none
+
+    .row:hover .cell
+      background: #f9fafb
+
+    a
+      color: #2563eb
+      text-decoration: none
+      font-weight: 500
+
+    a:hover
+      text-decoration: underline
+    """
+    [:div class="header" "Name"]
+    [:div class="header" "Size"]
+    [:div class="header" "Created"]
+    [:div class="header" "Modified"]
+    [:div class="header" "Type"]
+    cells...]
+end
+
+showdate(unixtime) = format(unix2datetime(unixtime), dateformat"dd/mm/yy")
+
+datasize(value::Number) = begin
+  power = max(1, round(Int, value > 0 ? log10(value) : 3) - 2)
+  suffix = ["B", "kB", "MB", "GB", "TB", "PB", "EB", "ZB", "YB"][power]
+  string(round(Int, 1e3 * value / 1e3^power), ' ', suffix)
+end
 
 compile(from::File{x}, to::File{x}) where x = write(to, from)
 
@@ -145,7 +296,7 @@ recur_link(src) = begin
   isempty(src) || occursin(r"^(\w+?:|#)", string(src)) && return string(src)
   child = cursor[] * src
   path = @dynamic! let cursor = dirname(child)
-    recur(compile(ReadFile(child)))
+    recur(compile(child))
   end
   string(setext(src, path.extension))
 end
@@ -164,9 +315,7 @@ const output = Ref{FSPath}(fs"/")
 const cursor = Ref{FSPath}(fs".")
 const analytics = Ref{String}("")
 
-"""
-Take a file in any format and convert it to a format which web browsers know how to display
-"""
+"Take a file in any format and convert it to a format which web browsers know how to display"
 browserify(file::AbstractString, into=dirname(file); tracking="") = browserify(FSPath(file), FSPath(into); tracking=tracking)
 browserify(file::FSPath, into::FSPath=file.parent; tracking="") = begin
   into.exists || mkdir(into)
@@ -174,6 +323,6 @@ browserify(file::FSPath, into::FSPath=file.parent; tracking="") = begin
                 output = abs(into),
                 analytics=tracking,
                 cursor = base[]
-    recur(compile(ReadFile(file)))
+    recur(compile(file))
   end
 end
