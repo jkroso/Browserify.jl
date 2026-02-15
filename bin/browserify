@@ -8,10 +8,6 @@ using Kip
 @use Sockets: localhost, IPAddr, listen, listenany
 @use Dates
 
-@use Glob: @glob_str
-readdir(glob"Readme.*", pwd())
-Glob.GlobMatch
-
 transform(path::String) = begin
   rel = relpath(path, root)
   if isdir(path)
