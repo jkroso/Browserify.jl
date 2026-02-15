@@ -1,7 +1,7 @@
 #!/usr/bin/env julia --color=yes --startup-file=no
 using Kip
 @use "github.com/jkroso/HTTP.jl/server" handle_requests
-@use "github.com/jkroso/Browserify.jl" compile ReadFile WriteFile compiled_extension browserify
+@use "github.com/jkroso/Browserify.jl" compile File compiled_extension browserify
 @use "github.com/jkroso/SimpleCLI.jl" @cli
 @use "github.com/jkroso/DOM.jl" => DOM @dom @css_str need ["html"]
 @use "../server" static
@@ -30,11 +30,11 @@ transform(path::String) = begin
     end
     out
   else
-    file = ReadFile(path)
+    file = File(path)
     outpath = joinpath(tempdir(), rel)
     outdir = dirname(outpath)
     ispath(outdir) || mkpath(outdir)
-    out = WriteFile(first(split(outpath, '.')) * compiled_extension(file))
+    out = File(first(split(outpath, '.')) * compiled_extension(file))
     compile(file, out)
     close(out.io)
     string(out.path)

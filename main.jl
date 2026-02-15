@@ -1,6 +1,7 @@
 @use "github.com/jkroso/DOM.jl" => DOM @dom @css_str ["html.jl"]
-@use "github.com/jkroso/URI.jl/FSPath.jl" FSPath @fs_str
+@use "github.com/jkroso/URI.jl/FS.jl" FSPath FileType @fs_str File
 @use "github.com/jkroso/Prospects.jl" need assoc flatten @field_str
+@use "github.com/jkroso/Units.jl" B Magnitude abbr Byte
 @use "github.com/jkroso/DynamicVar.jl" @dynamic!
 @use "github.com/jkroso/Rutherford.jl" doodle
 @use Dates: unix2datetime, format, @dateformat_str
@@ -8,51 +9,29 @@
 @use Markdown
 @use MIMEs
 
-abstract type File{extension} <: IO end
-struct ReadFile{extension} <: File{extension}
-  path::FSPath
-  io::IO
-end
-struct WriteFile{extension} <: File{extension}
-  path::FSPath
-  io::IO
-end
-Base.eof(f::File) = eof(f.io)
-Base.read(f::File, ::Type{UInt8}) = read(f.io, UInt8)
-Base.read(f::File, ::Type{String}) = read(f.io, String)
-Base.readavailable(f::File) = readavailable(f.io)
-Base.write(f::File, b::UInt8) = write(f.io, b)
-
-ReadFile(s::String) = ReadFile(FSPath(s))
-ReadFile(s::FSPath) = ReadFile{Symbol(extensions(s))}(s, open(string(s), "r"))
-WriteFile(s::String) = WriteFile(FSPath(s))
-WriteFile(s::FSPath) = WriteFile{Symbol(extensions(s))}(s, open(string(s), "w"))
-
 "Takes a file path and returns a file path to something that can be displayed in a browser"
 function compile(file::String)
   if isdir(file)
-    out = file*".html"
-    open(out, "w") do io
-      show(io, MIME("text/html"), @dom[:html
-        [:head [:title basename(file)] need(DOM.css[])]
-        [:body css"""
+    out = File(file*".html")
+    write(out, @dom[:html
+      [:head [:title basename(file)] need(DOM.css[])]
+      [:body css"""
+             display: flex
+             align-items: center
+             justify-content: space-around
+             """
+        [:div css"""
                display: flex
+               flex-direction: column
                align-items: center
                justify-content: space-around
+               max-width: 80em
                """
-          [:div css"""
-                 display: flex
-                 flex-direction: column
-                 align-items: center
-                 justify-content: space-around
-                 max-width: 80em
-                 """
-            readme(FSPath(file))
-            directory(file)]]])
-    end
-    ReadFile(out)
+          readme(FSPath(file))
+          directory(file)]]])
+    out
   else
-    compile(ReadFile(file))
+    compile(File(file))
   end
 end
 
@@ -70,7 +49,7 @@ function readme(dir::FSPath)
             box-shadow: 0 2px 10px rgba(0,0,0,0.1)
             margin: 1em 0
             """
-    todom(ReadFile(c[i]))]
+    todom(File(c[i]))]
 end
 
 function todom(file::File{:md})
@@ -82,13 +61,12 @@ compile(file::File) = begin
   rel = relpath(base[], file.path)
   outpath = output[] * rel
   outpath.parent.exists || mkdir(outpath.parent)
-  out = WriteFile(setext(outpath, compiled_extension(file)))
+  out = File(setext(outpath, compiled_extension(file)))
   compile(file, out)
-  close(out.io)
-  ReadFile(out.path)
+  out
 end
+
 setext(s::FSPath, ext) = s.parent * (split(s.name, '.')[1]*ext)
-extensions(s::FSPath) = join(split(s.name, '.')[2:end], '.')
 
 function get_file_icon(mime_type::String)
   if startswith(mime_type, "image/")
@@ -119,8 +97,7 @@ end
 function get_mime_type(file::FSPath)
   isdir(file) && return "inode/directory"
   isempty(file.extension) && return "application/octet-stream"
-  m = MIMEs.mime_from_extension(file.extension)
-  isnothing(m) ? "application/octet-stream" : string(m)
+  string(MIMEs.mime_from_extension(file.extension, MIME("application/octet-stream")))
 end
 
 function directory(path::String)
@@ -131,9 +108,9 @@ function directory(path::String)
   entries = [dir.parent, entries...]
   cells = flatten([
     (let mime = get_mime_type(entry)
-      [@dom[:div class="cell" [:a href=string(entry)
-         get_file_icon(mime) " " entry == dir.parent ? ".." : entry.name * (isdir(entry) ? "/" : "")]],
-       @dom[:div class="cell" isdir(entry) ? "-" : datasize(filesize(entry))],
+      [@dom[:div class="cell"
+        [:a href=string(entry) get_file_icon(mime) " " entry == dir.parent ? ".." : entry.name * (isdir(entry) ? "/" : "")]],
+       @dom[:div class="cell" showsize(get(entry).size)],
        @dom[:div class="cell" showdate(ctime(entry))],
        @dom[:div class="cell" showdate(mtime(entry))],
        @dom[:div class="cell" split(mime, '/')[end]]]
@@ -184,19 +161,21 @@ function directory(path::String)
 end
 
 showdate(unixtime) = format(unix2datetime(unixtime), dateformat"dd/mm/yy")
-
-datasize(value::Number) = begin
-  power = max(1, round(Int, value > 0 ? log10(value) : 3) - 2)
-  suffix = ["B", "kB", "MB", "GB", "TB", "PB", "EB", "ZB", "YB"][power]
-  string(round(Int, 1e3 * value / 1e3^power), ' ', suffix)
+showsize(n::Byte{m}) where m = begin
+  mag = m.value
+  while n.value > 999
+    mag += 3
+    n = convert(Byte{Magnitude(mag)}, n)
+  end
+  x = round(n.value, digits=2)
+  string(isinteger(x) ? round(Int, x) : x, ' ', abbr(typeof(n)))
 end
 
-compile(from::File{x}, to::File{x}) where x = write(to, from)
+compile(from::File{x}, to::File{x}) where x = write(to, read(from, String))
 
 compile(from::File{x}, to::File{:html}) where x = begin
   html = read(`pygmentize -f html -O "noclasses" -g $(string(from.path))`, String)
-  close(from.io)
-  show(to.io, MIME("text/html"), @dom[:html
+  write(to, @dom[:html
     [:head [:title basename(from.path)] need(DOM.css[])]
     [:body css"""
            margin: 0 auto
@@ -211,20 +190,19 @@ end
 compile(from::File{Symbol("dom.jl")}, to::File{:html}) = begin
   dom = Kip.eval_module(string(from.path))
   dom isa DOM.Node || (dom = doodle(dom))
-  if dom isa DOM.Container{:html}
-    show(to.io, MIME("text/html"), dom)
-  else
-    show(to.io, MIME("text/html"), @dom[:html
+  if !(dom isa DOM.Container{:html})
+    dom = @dom[:html
       [:head
         [:title titlecase(replace(from.path.name, "-" => " "))]
         [:style compiled_output("$(@dirname)/style.less")]
         need(DOM.css[])]
-      [:body dom]])
+      [:body dom]]
   end
+  write(to, dom)
 end
 
 compile(from::File{:md}, to::File{:html}) = begin
-  show(to.io, MIME("text/html"), @dom[:html
+  write(to, @dom[:html
     [:head
       [:title titlecase(replace(from.path.name, "-"=>" "))]
       need(DOM.css[])
@@ -240,9 +218,19 @@ end
 
 compile(from::File{:less}, to::File{:css}) = cd(@dirname) do
   ispath("node_modules/.bin/lessc") || run(`$(npm_cmd()) install --no-save less`)
-  run(pipeline(from.io, `$(nodejs_cmd()) ./node_modules/.bin/lessc -`, to.io))
+  open(from.path, "r") do from_io
+    open(to.path, "w") do to_io
+      run(pipeline(from_io, `$(nodejs_cmd()) ./node_modules/.bin/lessc -`, to_io))
+    end
+  end
 end
-compile(from::Union{File{:jade},File{:pug}}, to::File{:html}) = run(pipeline(from.io, `pug`, to.io))
+compile(from::Union{File{:jade},File{:pug}}, to::File{:html}) = begin
+  open(from.path, "r") do from_io
+    open(to.path, "w") do to_io
+      run(pipeline(from_io, `pug`, to_io))
+    end
+  end
+end
 
 "determine the format that a given file should be converted into"
 compiled_extension(::File) = ".html"
@@ -258,22 +246,18 @@ compiled_extension(::File{:js}) = ".js"
 
 "Compile to a buffer rather than an actual file"
 compiled_output(file) = begin
-  from = ReadFile(file)
+  from = File(file)
   fmt = Symbol(compiled_extension(from)[2:end])
-  to = WriteFile{fmt}(from.path, IOBuffer())
+  to = File{fmt}(FSPath(tempname()))
   compile(from, to)
-  String(take!(to.io))
+  read(to, String)
 end
 
 recur(file::File) = file.path
 recur(html::File{:html}) = begin
-  dom = parse(MIME("text/html"), read(html, String))
-  close(html.io)
-  open(html.path, "w") do io
-    dom = crawl(dom)
-    pushfirst!(dom.children[1].children, DOM.Literal(analytics[]))
-    show(io, MIME("text/html"), dom)
-  end
+  dom = crawl(parse(MIME("text/html"), read(html, String)))
+  pushfirst!(dom.children[1].children, DOM.Literal(analytics[]))
+  write(html, dom)
   html.path
 end
 
@@ -303,9 +287,7 @@ end
 
 recur(css::File{:css}) = begin
   str = read(css, String)
-  close(css.io)
   str = replace(str, r"url\([^)]+\)" => m->recur_link(m[5:end-1]))
-  open(css.path)
   write(css.path, str)
   css.path
 end
