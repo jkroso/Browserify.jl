@@ -36,7 +36,6 @@ transform(path::String) = begin
     ispath(outdir) || mkpath(outdir)
     out = File(first(split(outpath, '.')) * compiled_extension(file))
     compile(file, out)
-    close(out.io)
     string(out.path)
   end
 end
